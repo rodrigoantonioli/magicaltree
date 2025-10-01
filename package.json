@@ -1,0 +1,28 @@
+{
+  "name": "magicaltree",
+  "version": "0.1.0",
+  "description": "Web remake of Konami's Magical Tree for MSX",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [
+    "magical",
+    "tree",
+    "msx",
+    "platformer",
+    "phaser"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "phaser": "^3.90.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.7"
+  }
+}
