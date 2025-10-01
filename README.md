@@ -29,3 +29,14 @@ O servidor local do Vite será aberto automaticamente (porta padrão 5173). Use 
 - Implementar inimigos específicos do jogo (macacos, morcegos, cobras) e padrões variados
 - Construir fases com layout idêntico ao MSX e incluir chefes/objetivos adicionais
 - Introduzir placar com persistência e tela de título inspirada no jogo original
+
+## Publicando no GitHub Pages
+1. Garanta que o repositório seja chamado `magicaltree` ou ajuste `repoName` em `vite.config.ts`.
+2. Execute o build com a base correta e envie para a branch `gh-pages`:
+   ```bash
+   npm run predeploy
+   npm run deploy
+   ```
+3. No GitHub, habilite **Settings › Pages** apontando para a branch `gh-pages` (pasta root).
+
+O site será servido em `https://<seu-usuario>.github.io/magicaltree/`. Para atualizar, rode novamente os dois comandos acima.

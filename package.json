@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "predeploy": "cross-env GHPAGES=true vite build",
+    "deploy": "gh-pages -d dist"
   },
   "keywords": [
     "magical",
@@ -22,6 +24,8 @@
   },
   "devDependencies": {
     "@types/node": "^24.6.1",
+    "cross-env": "^10.1.0",
+    "gh-pages": "^6.3.0",
     "typescript": "^5.9.3",
     "vite": "^7.1.7"
   }
