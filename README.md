@@ -1,6 +1,8 @@
 # Magical Tree Remake
 
-Remake em HTML5/TypeScript do clássico **Magical Tree** (Konami, MSX). Este projeto inicial coloca um pequeno aventureiro para escalar uma grande árvore, pulando de galho em galho, coletando frutas e evitando perigos enquanto o tempo corre.
+Remake em HTML5/TypeScript do clássico **Magical Tree** (Konami, MSX). Este projeto inicial coloca um pequeno aventureiro para escalar uma grande árvore, pulando de galho em galho, coletando frutas e evitando perigos enquanto o tempo corre. 
+
+Teste no [Github Pages](https://rodrigoantonioli.github.io/magicaltree/)
 
 ## Tecnologias
 - [Phaser 3](https://phaser.io/) para o motor 2D
