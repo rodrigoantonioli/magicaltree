@@ -190,6 +190,7 @@ export default class GameScene extends Phaser.Scene {
     const startY = this.levelHeight - 140;
     this.player = new Player(this, startX, startY);
     this.player.setClimbZone(this.climbZone);
+    this.player.setSpeedBoost(1 + (this.currentStage - 1) * 0.05);
 
     this.player.setDepth(10);
     this.cameras.main.startFollow(this.player, true, 0.08, 0.15, 0, 20);

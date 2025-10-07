@@ -52,9 +52,15 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
 
   private readonly invulnerabilityDuration = 1600;
 
+  private readonly baseMaxVelocityX = 120;
+
+  private readonly baseMaxVelocityY = 420;
+
   private controlledFallUntil = 0;
 
   private invulnerableUntil = 0;
+
+  private speedBoost = 1;
 
   constructor(scene: Phaser.Scene, x: number, y: number) {
     super(scene, x, y, 'player-idle');
@@ -66,7 +72,10 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     this.setBounce(0.05);
     this.setSize(10, 18);
     this.setOffset(3, 10);
-    this.setMaxVelocity(120, 420);
+    this.setMaxVelocity(
+      this.baseMaxVelocityX * this.speedBoost,
+      this.baseMaxVelocityY * this.speedBoost
+    );
     this.setDragX(this.runDrag);
     this.setGravityY(760);
 
@@ -183,9 +192,9 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
       } else {
         body.setAllowGravity(false);
         if (wantsUp) {
-          body.setVelocity(0, this.climbSpeedUp);
+          body.setVelocity(0, this.climbSpeedUp * this.speedBoost);
         } else if (wantsDown) {
-          body.setVelocity(0, this.climbSpeedDown);
+          body.setVelocity(0, this.climbSpeedDown * this.speedBoost);
         } else {
           body.setVelocity(0, 0);
         }
@@ -203,7 +212,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
         this.setMovementState(PlayerState.Fall);
       } else {
         body.setAllowGravity(false);
-        body.setVelocity(0, this.slideSpeed);
+        body.setVelocity(0, this.slideSpeed * this.speedBoost);
         this.updateAnimation();
         return;
       }
@@ -223,7 +232,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     body.setAllowGravity(true);
 
     if (onGround && wantsJump) {
-      body.setVelocityY(this.jumpVelocity);
+      body.setVelocityY(this.jumpVelocity * this.speedBoost);
       this.setMovementState(PlayerState.Jump);
     }
 
@@ -236,7 +245,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     if (canMoveHorizontally) {
       const direction = (wantsRight ? 1 : 0) - (wantsLeft ? 1 : 0);
       if (direction !== 0) {
-        body.setAccelerationX(direction * this.runAcceleration);
+        body.setAccelerationX(direction * this.runAcceleration * this.speedBoost);
         this.setFlipX(direction < 0);
       } else {
         body.setAccelerationX(0);
@@ -246,7 +255,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     }
 
     if (!onGround && now < this.controlledFallUntil) {
-      body.setVelocityY(Math.max(body.velocity.y, this.controlledFallSpeed));
+      body.setVelocityY(Math.max(body.velocity.y, this.controlledFallSpeed * this.speedBoost));
     }
 
     this.refreshStateFromPhysics(onGround, body.velocity.y);
@@ -256,7 +265,13 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
       this.setMovementState(PlayerState.Climb);
       body.setAllowGravity(false);
       body.setVelocityX(0);
-      body.setVelocityY(wantsUp ? this.climbSpeedUp : wantsDown ? this.climbSpeedDown : 0);
+      body.setVelocityY(
+        wantsUp
+          ? this.climbSpeedUp * this.speedBoost
+          : wantsDown
+          ? this.climbSpeedDown * this.speedBoost
+          : 0
+      );
       this.updateAnimation();
     }
   }
@@ -279,7 +294,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     const body = this.body as Phaser.Physics.Arcade.Body;
     body.setAllowGravity(true);
     if (jump) {
-      body.setVelocityY(this.jumpVelocity * 0.85);
+      body.setVelocityY(this.jumpVelocity * 0.85 * this.speedBoost);
       this.setMovementState(PlayerState.Jump);
     } else {
       this.setMovementState(PlayerState.Fall);
@@ -349,5 +364,13 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     const zoneBounds = this.climbZone.getBounds();
     const playerBounds = new Phaser.Geom.Rectangle(body.x, body.y, body.width, body.height);
     return Phaser.Geom.Rectangle.Overlaps(zoneBounds, playerBounds);
+  }
+
+  setSpeedBoost(multiplier: number): void {
+    this.speedBoost = Phaser.Math.Clamp(multiplier, 0.25, 3);
+    this.setMaxVelocity(
+      this.baseMaxVelocityX * this.speedBoost,
+      this.baseMaxVelocityY * this.speedBoost
+    );
   }
 }
