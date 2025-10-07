@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import gameState from '../state/GameState';
 
 export default class BootScene extends Phaser.Scene {
   constructor() {
@@ -10,7 +11,8 @@ export default class BootScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.scene.start('game');
+    gameState.resetProgress();
+    this.scene.start('title');
   }
 
   private createProceduralTextures(): void {
