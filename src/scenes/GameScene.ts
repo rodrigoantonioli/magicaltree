@@ -1,4 +1,8 @@
 import Phaser from 'phaser';
+import BaseEnemy from '../objects/BaseEnemy';
+import EnemySpawner, { EnemySpawnerConfig } from '../objects/EnemySpawner';
+import { EnemySpawnParams } from '../objects/BaseEnemy';
+import { createEnemy } from '../objects/EnemyFactory';
 import Player from '../objects/Player';
 
 interface LevelBranchConfig {
@@ -26,7 +30,9 @@ export default class GameScene extends Phaser.Scene {
 
   private fruits!: Phaser.Physics.Arcade.Group;
 
-  private hazards!: Phaser.Physics.Arcade.Group;
+  private enemies!: Phaser.Physics.Arcade.Group;
+
+  private projectiles!: Phaser.Physics.Arcade.Group;
 
   private climbZone!: Phaser.GameObjects.Zone;
 
@@ -34,7 +40,7 @@ export default class GameScene extends Phaser.Scene {
 
   private timeLeft = 120;
 
-  private levelHeight = 3200;
+  public levelHeight = 3200;
 
   private stageText!: Phaser.GameObjects.Text;
 
@@ -52,7 +58,13 @@ export default class GameScene extends Phaser.Scene {
 
   private goalMarker!: Phaser.GameObjects.Image;
 
-  private readonly hazardTelegraphDuration = 360;
+  private enemySpawners: EnemySpawner[] = [];
+
+  private branchConfigs: LevelBranchConfig[] = [];
+
+  private enemyParticles!: Phaser.GameObjects.Particles.ParticleEmitterManager;
+
+  private playerHitCooldown = 0;
 
   constructor() {
     super('game');
@@ -65,6 +77,9 @@ export default class GameScene extends Phaser.Scene {
     this.reachedGoal = false;
     this.stageSettings = this.getStageSettings(this.currentStage);
     this.levelHeight = Phaser.Math.Clamp(3200 + (this.currentStage - 1) * 120, 3200, 4000);
+    this.enemySpawners = [];
+    this.branchConfigs = [];
+    this.playerHitCooldown = 0;
   }
 
   create(): void {
@@ -72,6 +87,7 @@ export default class GameScene extends Phaser.Scene {
     this.createTree();
     this.createBranchesAndFruits();
     this.createPlayer();
+    this.createEffects();
     this.createHazards();
     this.createUI();
     this.initColliders();
@@ -109,6 +125,7 @@ export default class GameScene extends Phaser.Scene {
     this.fruits = this.physics.add.group({ allowGravity: false, immovable: true });
 
     const configs = this.generateLevelLayout();
+    this.branchConfigs = configs;
     configs.forEach((config) => {
       const branch = this.branches.create(config.x, config.y, 'branch') as Phaser.Physics.Arcade.Sprite;
       branch.setOrigin(0.5, 0.5);
@@ -187,98 +204,250 @@ export default class GameScene extends Phaser.Scene {
     this.cameras.main.setScroll(0, this.levelHeight - this.scale.height);
   }
 
+  private createEffects(): void {
+    this.enemyParticles = this.add.particles(0, 0, 'enemy-spark', {
+      lifespan: { min: 220, max: 360 },
+      speed: { min: 60, max: 120 },
+      gravityY: 140,
+      scale: { start: 0.9, end: 0 },
+      quantity: 12,
+      emitting: false
+    });
+    this.enemyParticles.setDepth(18);
+  }
+
   private createHazards(): void {
-    this.hazards = this.physics.add.group();
-
-    this.time.addEvent({
-      delay: this.stageSettings.horizontalHazardDelay,
-      loop: true,
-      callback: () => this.spawnHorizontalHazard()
-    });
-
-    this.time.addEvent({
-      delay: this.stageSettings.fallingHazardDelay,
-      loop: true,
-      callback: () => this.spawnFallingHazard()
-    });
-  }
-
-  private spawnHorizontalHazard(): void {
-    if (this.reachedGoal) {
-      return;
-    }
-    const viewport = this.cameras.main;
-    const minY = this.stageSettings.goalHeight + 60;
-    const maxY = Math.max(viewport.scrollY + this.scale.height, minY + 40);
-    const targetY = Phaser.Math.Clamp(
-      this.player.y - Phaser.Math.Between(100, 220),
-      minY,
-      Math.min(maxY, this.levelHeight - 200)
+    this.createEnemyAnimations();
+    this.enemies = this.physics.add.group();
+    this.projectiles = this.physics.add.group();
+    this.enemySpawners.forEach((spawner) => spawner.destroy());
+    this.enemySpawners = this.getSpawnerConfigsForStage(this.currentStage).map(
+      (config) => new EnemySpawner(this, config)
     );
-    const fromLeft = Phaser.Math.Between(0, 1) === 0;
-    const spawnX = fromLeft ? -32 : this.scale.width + 32;
-    const hazard = this.hazards.create(spawnX, targetY, 'hazard') as Phaser.Physics.Arcade.Sprite;
-    hazard.setActive(true).setVisible(true);
-    hazard.setCircle(10);
-    hazard.setDepth(8);
-    hazard.setCollideWorldBounds(false);
-    hazard.setVelocity(0, 0);
-    hazard.setAlpha(0.3);
-    const warning = this.add.image(fromLeft ? 8 : this.scale.width - 8, targetY, fromLeft ? 'warning-right' : 'warning-left');
-    warning.setOrigin(fromLeft ? 0 : 1, 0.5);
-    warning.setDepth(18);
-    warning.setAlpha(0.95);
-    this.tweens.add({
-      targets: warning,
-      alpha: 0,
-      duration: this.hazardTelegraphDuration,
-      ease: 'Linear',
-      onComplete: () => warning.destroy()
-    });
-    this.time.delayedCall(this.hazardTelegraphDuration, () => {
-      if (!hazard.active) {
-        return;
-      }
-      hazard.setAlpha(1);
-      hazard.setVelocityX((fromLeft ? 1 : -1) * this.stageSettings.horizontalHazardSpeed);
-      hazard.setVelocityY(Phaser.Math.Between(-16, 16));
-    });
-    hazard.setData('fromLeft', fromLeft);
-    hazard.setData('type', 'horizontal');
   }
 
-  private spawnFallingHazard(): void {
-    if (this.reachedGoal) {
-      return;
+  private createEnemyAnimations(): void {
+    const anims = this.anims;
+    if (!anims.exists('condor-fly')) {
+      anims.create({
+        key: 'condor-fly',
+        frames: anims.generateFrameNames('enemy-condor', { start: 0, end: 2 }),
+        frameRate: 8,
+        repeat: -1
+      });
     }
-    const camera = this.cameras.main;
-    const spawnY = Math.max(camera.scrollY - 40, this.stageSettings.goalHeight - 120);
-    const spawnX = Phaser.Math.Between(70, this.scale.width - 70);
-    const hazard = this.hazards.create(spawnX, spawnY, 'coconut') as Phaser.Physics.Arcade.Sprite;
-    hazard.setActive(true).setVisible(true);
-    hazard.setCircle(6);
-    hazard.setVelocity(0, 0);
-    hazard.setGravityY(0);
-    hazard.setAlpha(0.2);
-    const warning = this.add.image(spawnX, camera.scrollY + 24, 'warning-down');
-    warning.setOrigin(0.5, 0);
-    warning.setDepth(18);
-    warning.setAlpha(0.95);
-    this.tweens.add({
-      targets: warning,
-      alpha: 0,
-      duration: this.hazardTelegraphDuration,
-      ease: 'Linear',
-      onComplete: () => warning.destroy()
-    });
-    this.time.delayedCall(this.hazardTelegraphDuration, () => {
-      if (!hazard.active) {
-        return;
+    if (!anims.exists('scorpion-walk')) {
+      anims.create({
+        key: 'scorpion-walk',
+        frames: anims.generateFrameNames('enemy-scorpion', { start: 0, end: 3 }),
+        frameRate: 10,
+        repeat: -1
+      });
+    }
+    if (!anims.exists('monkey-climb')) {
+      anims.create({
+        key: 'monkey-climb',
+        frames: anims.generateFrameNames('enemy-monkey', { start: 0, end: 3 }),
+        frameRate: 6,
+        repeat: -1
+      });
+    }
+    if (!anims.exists('monkey-throw')) {
+      anims.create({
+        key: 'monkey-throw',
+        frames: anims.generateFrameNames('enemy-monkey', { start: 0, end: 3 }),
+        frameRate: 12,
+        repeat: 0
+      });
+    }
+    if (!anims.exists('snake-rise')) {
+      anims.create({
+        key: 'snake-rise',
+        frames: anims.generateFrameNames('enemy-snake', { start: 0, end: 3 }),
+        frameRate: 6,
+        repeat: -1
+      });
+    }
+    if (!anims.exists('spider-sway')) {
+      anims.create({
+        key: 'spider-sway',
+        frames: anims.generateFrameNames('enemy-spider', { start: 0, end: 3 }),
+        frameRate: 6,
+        repeat: -1
+      });
+    }
+    if (!anims.exists('coconut-spin')) {
+      anims.create({
+        key: 'coconut-spin',
+        frames: anims.generateFrameNames('enemy-coconut', { start: 0, end: 2 }),
+        frameRate: 12,
+        repeat: -1
+      });
+    }
+  }
+
+  private getSpawnerConfigsForStage(stage: number): EnemySpawnerConfig[] {
+    const configs: EnemySpawnerConfig[] = [];
+    const condorSpeed = 70 + stage * 8;
+    const condorInterval = Phaser.Math.Clamp(3600 - stage * 160, 2200, 3600);
+    configs.push({
+      type: 'condor',
+      interval: condorInterval,
+      initialDelay: 1200,
+      maxAlive: 2 + Math.floor(stage / 4),
+      resolveSpawn: () => {
+        const direction = Phaser.Math.Between(0, 1) === 0 ? 'left' : 'right';
+        const spawnX = direction === 'left' ? -28 : this.scale.width + 28;
+        const baseY = Phaser.Math.Clamp(
+          this.player.y - Phaser.Math.Between(-40, 160),
+          this.stageSettings.goalHeight + 60,
+          this.levelHeight - 220
+        );
+        return {
+          x: spawnX,
+          y: baseY,
+          direction,
+          speed: condorSpeed,
+          amplitude: Phaser.Math.Between(10, 24)
+        } as EnemySpawnParams;
       }
-      hazard.setAlpha(1);
-      hazard.setGravityY(this.stageSettings.fallingHazardGravity);
     });
-    hazard.setData('type', 'vertical');
+
+    const scorpionInterval = Phaser.Math.Clamp(5200 - stage * 180, 3000, 5200);
+    configs.push({
+      type: 'scorpion',
+      interval: scorpionInterval,
+      initialDelay: 2200,
+      maxAlive: 2 + Math.floor(stage / 3),
+      resolveSpawn: () => {
+        const branch = this.pickBranchNear(this.player.y, 160);
+        if (!branch) {
+          return null;
+        }
+        const span = 28;
+        const minX = branch.x - span;
+        const maxX = branch.x + span;
+        const direction = Phaser.Math.Between(0, 1) === 0 ? 'left' : 'right';
+        return {
+          x: Phaser.Math.Clamp(branch.x + Phaser.Math.Between(-16, 16), minX + 2, maxX - 2),
+          y: branch.y - 4,
+          direction,
+          branchLimits: { minX, maxX },
+          speed: Phaser.Math.Between(28, 36) + stage * 2
+        } as EnemySpawnParams;
+      }
+    });
+
+    if (stage >= 2) {
+      const monkeyInterval = Phaser.Math.Clamp(6400 - stage * 220, 3400, 6400);
+      configs.push({
+        type: 'monkey',
+        interval: monkeyInterval,
+        initialDelay: 2600,
+        maxAlive: 2,
+        resolveSpawn: () => {
+          const cameraBottom = this.cameras.main.scrollY + this.scale.height - 40;
+          const top = Phaser.Math.Clamp(
+            this.player.y - Phaser.Math.Between(90, 140),
+            this.stageSettings.goalHeight + 48,
+            cameraBottom - 120
+          );
+          const bottom = Phaser.Math.Clamp(top + Phaser.Math.Between(90, 150), top + 40, cameraBottom);
+          const orientation = Phaser.Math.Between(0, 1) === 0 ? 'left' : 'right';
+          return {
+            x: 128 + Phaser.Math.Between(-18, 18),
+            y: bottom,
+            direction: orientation,
+            verticalDirection: 'up',
+            travelBounds: { top, bottom },
+            throwInterval: Phaser.Math.Between(1800, 2600)
+          } as EnemySpawnParams;
+        }
+      });
+    }
+
+    if (stage >= 3) {
+      const snakeInterval = Phaser.Math.Clamp(7200 - stage * 200, 3600, 7200);
+      configs.push({
+        type: 'snake',
+        interval: snakeInterval,
+        initialDelay: 3000,
+        maxAlive: 2,
+        resolveSpawn: () => {
+          const branch = this.pickBranchNear(this.player.y + 40, 200);
+          if (!branch) {
+            return null;
+          }
+          const baseY = branch.y + 14;
+          const holeX = Phaser.Math.Between(0, 1) === 0 ? 112 : 144;
+          return {
+            x: holeX,
+            y: baseY,
+            baseY,
+            emergeHeight: Phaser.Math.Between(14, 22),
+            speed: 32 + stage * 3,
+            direction: Phaser.Math.Between(0, 1) === 0 ? 'left' : 'right'
+          } as EnemySpawnParams;
+        }
+      });
+    }
+
+    if (stage >= 4) {
+      const spiderInterval = Phaser.Math.Clamp(8400 - stage * 240, 4000, 8400);
+      configs.push({
+        type: 'spider',
+        interval: spiderInterval,
+        initialDelay: 3600,
+        maxAlive: 1 + Math.floor(stage / 5),
+        resolveSpawn: () => {
+          const branch = this.pickBranchNear(this.player.y - 40, 180);
+          if (!branch) {
+            return null;
+          }
+          const dropY = Phaser.Math.Clamp(branch.y - Phaser.Math.Between(40, 90), this.stageSettings.goalHeight, branch.y - 24);
+          return {
+            x: branch.x,
+            y: dropY,
+            dropHeight: branch.y - dropY - 8
+          } as EnemySpawnParams;
+        }
+      });
+    }
+
+    return configs;
+  }
+
+  private pickBranchNear(y: number, tolerance: number): LevelBranchConfig | undefined {
+    const valid = this.branchConfigs.filter(
+      (branch) => Math.abs(branch.y - y) < tolerance && branch.y > this.stageSettings.goalHeight + 20
+    );
+    if (valid.length === 0) {
+      return undefined;
+    }
+    return Phaser.Utils.Array.GetRandom(valid);
+  }
+
+  public registerEnemy(enemy: BaseEnemy): void {
+    if (enemy.isProjectile()) {
+      this.projectiles.add(enemy);
+    } else {
+      this.enemies.add(enemy);
+    }
+  }
+
+  public spawnProjectile(config: { x: number; y: number; speed: number; direction: number }): void {
+    const params: EnemySpawnParams = {
+      x: config.x,
+      y: config.y,
+      speed: config.speed,
+      direction: config.direction < 0 ? 'left' : 'right'
+    };
+    const projectile = createEnemy(this, 'coconut', params);
+    this.registerEnemy(projectile);
+  }
+
+  public hasReachedGoal(): boolean {
+    return this.reachedGoal;
   }
 
   private createUI(): void {
@@ -326,8 +495,11 @@ export default class GameScene extends Phaser.Scene {
 
   private initColliders(): void {
     this.physics.add.collider(this.player, this.branches);
+    this.physics.add.collider(this.enemies, this.branches);
     this.physics.add.overlap(this.player, this.fruits, this.collectFruit, undefined, this);
-    this.physics.add.overlap(this.player, this.hazards, this.hitHazard, undefined, this);
+    this.physics.add.overlap(this.player, this.enemies, this.handleEnemyCollision, undefined, this);
+    this.physics.add.overlap(this.player, this.projectiles, this.handleProjectileCollision, undefined, this);
+    this.physics.add.collider(this.projectiles, this.branches, this.handleProjectileBlock, undefined, this);
   }
 
   private collectFruit: Phaser.Types.Physics.Arcade.ArcadePhysicsCallback = (_player, fruit) => {
@@ -339,26 +511,67 @@ export default class GameScene extends Phaser.Scene {
     const value = sprite.getData('value') ?? 100;
     this.addFloatingText(sprite.x, sprite.y, `+${value}`);
     this.score += value;
-    this.timeLeft = Math.min(this.timeLeft + 2, 180);
+    this.adjustTime(2);
     this.addFloatingText(sprite.x, sprite.y - 16, '+2 TEMPO');
-    this.updateHUD();
   };
 
-  private hitHazard: Phaser.Types.Physics.Arcade.ArcadePhysicsCallback = (_player, hazard) => {
-    const sprite = hazard as Phaser.Physics.Arcade.Sprite;
-    if (!sprite.active || this.reachedGoal) {
+  private handleEnemyCollision: Phaser.Types.Physics.Arcade.ArcadePhysicsCallback = (_player, enemy) => {
+    const foe = enemy as BaseEnemy;
+    if (!foe.active || this.playerHitCooldown > 0 || this.reachedGoal) {
       return;
     }
-    sprite.disableBody(true, true);
-    this.handleGameOver('ATINGIDO!');
+    this.playerHitCooldown = 700;
+    this.enemyParticles.emitParticleAt(foe.x, foe.y, 12);
+    const effect = foe.getCollisionEffect();
+    if (effect === 'knockdown') {
+      const impulse = foe.x < this.player.x ? 120 : -120;
+      this.player.detachFromClimb(impulse, -220);
+      this.adjustTime(-6);
+      this.sound.play('enemy-hit');
+    } else if (effect === 'fatal') {
+      this.sound.play('enemy-hit');
+      this.handleGameOver('CAPTURADO!');
+    }
+    foe.despawn();
   };
 
-  update(): void {
+  private handleProjectileCollision: Phaser.Types.Physics.Arcade.ArcadePhysicsCallback = (_player, projectile) => {
+    const hazard = projectile as BaseEnemy;
+    if (!hazard.active || this.reachedGoal) {
+      return;
+    }
+    hazard.despawn();
+    this.enemyParticles.emitParticleAt(hazard.x, hazard.y, 10);
+    this.sound.play('time-drain');
+    this.adjustTime(-4);
+  };
+
+  private handleProjectileBlock: Phaser.Types.Physics.Arcade.ArcadePhysicsCallback = (_object, projectile) => {
+    const hazard = projectile as BaseEnemy;
+    if (!hazard.active) {
+      return;
+    }
+    this.enemyParticles.emitParticleAt(hazard.x, hazard.y, 8);
+    hazard.despawn();
+  };
+
+  private adjustTime(delta: number): void {
+    this.timeLeft = Phaser.Math.Clamp(this.timeLeft + delta, 0, 180);
+    this.updateHUD();
+    if (this.timeLeft <= 0 && !this.reachedGoal) {
+      this.handleGameOver('TEMPO ESGOTOU');
+    }
+  }
+
+  update(_time: number, delta: number): void {
     if (this.reachedGoal) {
       return;
     }
 
-    this.loopHazards();
+    if (this.playerHitCooldown > 0) {
+      this.playerHitCooldown = Math.max(0, this.playerHitCooldown - delta);
+    }
+
     this.animateFruits();
     this.updateBackgroundParallax();
     this.checkGoal();
@@ -368,31 +581,6 @@ export default class GameScene extends Phaser.Scene {
   private updateBackgroundParallax(): void {
     const scrollY = this.cameras.main.scrollY;
     this.sky.tilePositionY = scrollY * 0.2;
-  }
-
-  private loopHazards(): void {
-    this.hazards.children.each((child) => {
-      const hazard = child as Phaser.Physics.Arcade.Sprite;
-      if (!hazard.active) {
-        return true;
-      }
-      const type = hazard.getData('type') as string | undefined;
-      if (type === 'vertical') {
-        const cameraBottom = this.cameras.main.scrollY + this.scale.height + 40;
-        if (hazard.y > cameraBottom || hazard.y > this.levelHeight - 16) {
-          hazard.disableBody(true, true);
-        }
-        return true;
-      }
-
-      const fromLeft = hazard.getData('fromLeft');
-      if (fromLeft && hazard.x > this.scale.width + 32) {
-        hazard.disableBody(true, true);
-      } else if (!fromLeft && hazard.x < -32) {
-        hazard.disableBody(true, true);
-      }
-      return true;
-    });
   }
 
   private animateFruits(): void {

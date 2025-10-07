@@ -93,4 +93,12 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
       body.setAllowGravity(true);
     }
   }
+
+  detachFromClimb(impulseX: number, impulseY: number): void {
+    const body = this.body as Phaser.Physics.Arcade.Body;
+    if (this.isClimbing) {
+      this.setClimbing(false);
+    }
+    body.setVelocity(impulseX, impulseY);
+  }
 }
