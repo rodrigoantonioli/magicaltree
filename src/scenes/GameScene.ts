@@ -1,23 +1,13 @@
 import Phaser from 'phaser';
 import Player from '../objects/Player';
-
-interface LevelBranchConfig {
-  x: number;
-  y: number;
-  hasFruit: boolean;
-}
-
-interface StageSettings {
-  branchSpacing: number;
-  fruitChance: number;
-  horizontalHazardDelay: number;
-  horizontalHazardSpeed: number;
-  fallingHazardDelay: number;
-  fallingHazardGravity: number;
-  goalHeight: number;
-  doubleBranchEvery: number;
-  branchJitter: number;
-}
+import {
+  StageDefinition,
+  StageHazardEvent,
+  StageItemConfig,
+  LadderConfig,
+  getStageDefinition,
+  getStageLabel
+} from '../data/levels';
 
 export default class GameScene extends Phaser.Scene {
   private player!: Player;
@@ -48,7 +38,7 @@ export default class GameScene extends Phaser.Scene {
 
   private timeText!: Phaser.GameObjects.Text;
 
-  private stageSettings!: StageSettings;
+  private stageDefinition!: StageDefinition;
 
   private goalMarker!: Phaser.GameObjects.Image;
 
@@ -59,17 +49,19 @@ export default class GameScene extends Phaser.Scene {
   }
 
   init(data: { stage?: number; score?: number } = {}): void {
-    this.currentStage = data.stage ?? 1;
+    const requestedStage = data.stage ?? 1;
+    this.stageDefinition = getStageDefinition(requestedStage);
+    this.currentStage = this.stageDefinition.id;
     this.score = data.score ?? 0;
-    this.timeLeft = 120;
+    this.timeLeft = this.stageDefinition.timeLimit;
     this.reachedGoal = false;
-    this.stageSettings = this.getStageSettings(this.currentStage);
-    this.levelHeight = Phaser.Math.Clamp(3200 + (this.currentStage - 1) * 120, 3200, 4000);
+    this.levelHeight = this.stageDefinition.levelHeight;
   }
 
   create(): void {
     this.createWorld();
     this.createTree();
+    this.createStageDecorations();
     this.createBranchesAndFruits();
     this.createPlayer();
     this.createHazards();
@@ -95,90 +87,107 @@ export default class GameScene extends Phaser.Scene {
       trunk.setOrigin(0.5, 1);
     }
 
-    const goalY = this.stageSettings.goalHeight;
+    if (this.stageDefinition.finale) {
+      const finale = this.stageDefinition.finale;
+      const canopy = this.add.tileSprite(128, finale.canopyY, 256, finale.canopyHeight, 'canopy');
+      canopy.setOrigin(0.5, 1);
+      canopy.setDepth(2);
+    }
+
+    const goalY = this.stageDefinition.goalHeight;
     this.goalMarker = this.add.image(128, goalY, 'goal-banner');
     this.goalMarker.setOrigin(0.5, 1);
     this.goalMarker.setDepth(6);
 
-    this.climbZone = this.add.zone(128, this.levelHeight / 2, 48, this.levelHeight);
+    const climbWidth = this.stageDefinition.climbZoneWidth ?? 48;
+    this.climbZone = this.add.zone(128, this.levelHeight / 2, climbWidth, this.levelHeight);
     this.physics.add.existing(this.climbZone, true);
+  }
+
+  private createStageDecorations(): void {
+    this.createLadders(this.stageDefinition.ladders);
+    if (this.stageDefinition.finale?.stairs) {
+      this.createLadders(this.stageDefinition.finale.stairs);
+    }
+    this.createCheckpoints();
+  }
+
+  private createLadders(configs?: LadderConfig[]): void {
+    if (!configs || configs.length === 0) {
+      return;
+    }
+    configs.forEach((config) => {
+      const height = config.bottom - config.top;
+      if (height <= 0) {
+        return;
+      }
+      const ladder = this.add.tileSprite(config.x, config.bottom, config.width ?? 24, height, 'ladder');
+      ladder.setOrigin(0.5, 1);
+      ladder.setDepth(3);
+    });
+  }
+
+  private createCheckpoints(): void {
+    const checkpoints = this.stageDefinition.checkpoints ?? [];
+    if (checkpoints.length === 0) {
+      return;
+    }
+    checkpoints.forEach((checkpoint) => {
+      const marker = this.add.image(228, checkpoint.y, 'checkpoint');
+      marker.setOrigin(0.5, 0.5);
+      marker.setDepth(5);
+      if (checkpoint.label) {
+        const text = this.add
+          .text(228, checkpoint.y - 14, checkpoint.label, {
+            fontSize: '8px',
+            fontFamily: '"Press Start 2P", monospace',
+            color: '#ffe082',
+            stroke: '#401000',
+            strokeThickness: 2,
+            align: 'center'
+          })
+          .setOrigin(0.5, 0.5);
+        text.setDepth(5);
+      }
+    });
   }
 
   private createBranchesAndFruits(): void {
     this.branches = this.physics.add.staticGroup();
     this.fruits = this.physics.add.group({ allowGravity: false, immovable: true });
 
-    const configs = this.generateLevelLayout();
-    configs.forEach((config) => {
+    const layout = this.stageDefinition.layout;
+    let fruitIndex = 0;
+
+    layout.forEach((config) => {
       const branch = this.branches.create(config.x, config.y, 'branch') as Phaser.Physics.Arcade.Sprite;
       branch.setOrigin(0.5, 0.5);
       branch.refreshBody();
 
-      if (config.hasFruit) {
-        const fruit = this.fruits.create(config.x, config.y - 20, 'fruit');
-        fruit.setData('value', 200);
-        fruit.setData('floatingSeed', Phaser.Math.Between(0, 1000));
+      if (config.fruit) {
+        const texture = config.fruit.texture ?? 'fruit';
+        const offsetY = config.fruit.offsetY ?? 20;
+        const fruit = this.fruits.create(config.x, config.y - offsetY, texture) as Phaser.Physics.Arcade.Sprite;
+        fruit.setData('value', config.fruit.value);
+        fruit.setData('timeBonus', config.fruit.timeBonus ?? this.stageDefinition.fruitTimeBonus);
+        fruit.setData('floatingSeed', fruitIndex * 133 + 31);
+        fruitIndex += 1;
       }
+    });
+
+    (this.stageDefinition.items ?? []).forEach((item: StageItemConfig) => {
+      const texture = item.texture ?? 'fruit';
+      const fruit = this.fruits.create(item.x, item.y, texture) as Phaser.Physics.Arcade.Sprite;
+      fruit.setData('value', item.value);
+      fruit.setData('timeBonus', item.timeBonus ?? this.stageDefinition.fruitTimeBonus);
+      fruit.setData('floatingSeed', fruitIndex * 133 + 31);
+      fruitIndex += 1;
     });
   }
 
-  private generateLevelLayout(): LevelBranchConfig[] {
-    const pickOffsetCenter = () => {
-      const sign = Phaser.Math.Between(0, 1) === 0 ? -1 : 1;
-      return 128 + sign * Phaser.Math.Between(20, 28);
-    };
-
-    const pickEdgeLane = () => (Phaser.Math.Between(0, 1) === 0 ? 72 : 184);
-
-    const configs: LevelBranchConfig[] = [{ x: pickOffsetCenter(), y: this.levelHeight - 42, hasFruit: false }];
-    const startY = this.levelHeight - 140;
-    const endY = this.stageSettings.goalHeight + 40;
-    const lanes = [72, 104, 152, 184];
-    let direction = -1;
-    let index = 0;
-
-    for (let y = startY; y > endY; y -= this.stageSettings.branchSpacing) {
-      const jitterY = Phaser.Math.Between(-this.stageSettings.branchJitter, this.stageSettings.branchJitter);
-      const nearGoal = y < this.stageSettings.goalHeight + 140;
-      let branchX = direction === -1 ? lanes[0 + Phaser.Math.Between(0, 1)] : lanes[3 - Phaser.Math.Between(0, 1)];
-
-      if (nearGoal) {
-        branchX = pickEdgeLane();
-      } else if (index % this.stageSettings.doubleBranchEvery === 0) {
-        branchX = pickOffsetCenter();
-      }
-
-      configs.push({
-        x: branchX,
-        y: y + jitterY,
-        hasFruit: Phaser.Math.FloatBetween(0, 1) < this.stageSettings.fruitChance
-      });
-
-      if (!nearGoal && index % this.stageSettings.doubleBranchEvery === 1) {
-        const offsetY = Phaser.Math.Between(14, 26);
-        const altY = y + jitterY - offsetY;
-        if (altY > endY) {
-          const oppositeLane = direction === -1 ? lanes[3] : lanes[0];
-          configs.push({
-            x: oppositeLane,
-            y: altY,
-            hasFruit: Phaser.Math.FloatBetween(0, 1) < this.stageSettings.fruitChance * 0.6
-          });
-        }
-      }
-
-      direction *= -1;
-      index += 1;
-    }
-
-    configs.push({ x: pickEdgeLane(), y: this.stageSettings.goalHeight + 28, hasFruit: false });
-
-    return configs;
-  }
-
   private createPlayer(): void {
-    const startX = 128;
-    const startY = this.levelHeight - 140;
+    const startX = this.stageDefinition.playerStart.x;
+    const startY = this.stageDefinition.playerStart.y;
     this.player = new Player(this, startX, startY);
     this.player.setClimbZone(this.climbZone);
 
@@ -190,77 +199,62 @@ export default class GameScene extends Phaser.Scene {
   private createHazards(): void {
     this.hazards = this.physics.add.group();
 
-    this.time.addEvent({
-      delay: this.stageSettings.horizontalHazardDelay,
-      loop: true,
-      callback: () => this.spawnHorizontalHazard()
-    });
-
-    this.time.addEvent({
-      delay: this.stageSettings.fallingHazardDelay,
-      loop: true,
-      callback: () => this.spawnFallingHazard()
+    this.stageDefinition.hazardEvents.forEach((event) => {
+      this.time.delayedCall(event.at, () => this.spawnHazardEvent(event));
     });
   }
 
-  private spawnHorizontalHazard(): void {
+  private spawnHazardEvent(event: StageHazardEvent): void {
     if (this.reachedGoal) {
       return;
     }
-    const viewport = this.cameras.main;
-    const minY = this.stageSettings.goalHeight + 60;
-    const maxY = Math.max(viewport.scrollY + this.scale.height, minY + 40);
-    const targetY = Phaser.Math.Clamp(
-      this.player.y - Phaser.Math.Between(100, 220),
-      minY,
-      Math.min(maxY, this.levelHeight - 200)
-    );
-    const fromLeft = Phaser.Math.Between(0, 1) === 0;
-    const spawnX = fromLeft ? -32 : this.scale.width + 32;
-    const hazard = this.hazards.create(spawnX, targetY, 'hazard') as Phaser.Physics.Arcade.Sprite;
-    hazard.setActive(true).setVisible(true);
-    hazard.setCircle(10);
-    hazard.setDepth(8);
-    hazard.setCollideWorldBounds(false);
-    hazard.setVelocity(0, 0);
-    hazard.setAlpha(0.3);
-    const warning = this.add.image(fromLeft ? 8 : this.scale.width - 8, targetY, fromLeft ? 'warning-right' : 'warning-left');
-    warning.setOrigin(fromLeft ? 0 : 1, 0.5);
-    warning.setDepth(18);
-    warning.setAlpha(0.95);
-    this.tweens.add({
-      targets: warning,
-      alpha: 0,
-      duration: this.hazardTelegraphDuration,
-      ease: 'Linear',
-      onComplete: () => warning.destroy()
-    });
-    this.time.delayedCall(this.hazardTelegraphDuration, () => {
-      if (!hazard.active) {
-        return;
-      }
-      hazard.setAlpha(1);
-      hazard.setVelocityX((fromLeft ? 1 : -1) * this.stageSettings.horizontalHazardSpeed);
-      hazard.setVelocityY(Phaser.Math.Between(-16, 16));
-    });
-    hazard.setData('fromLeft', fromLeft);
-    hazard.setData('type', 'horizontal');
-  }
+    if (event.type === 'horizontal') {
+      const fromLeft = event.fromLeft ?? true;
+      const spawnX = fromLeft ? -32 : this.scale.width + 32;
+      const minY = this.stageDefinition.goalHeight + 80;
+      const maxY = this.levelHeight - 200;
+      const baseY = this.stageDefinition.goalHeight + 200;
+      const targetY = Phaser.Math.Clamp(event.y ?? baseY, minY, maxY);
+      const hazard = this.hazards.create(spawnX, targetY, 'hazard') as Phaser.Physics.Arcade.Sprite;
+      hazard.setActive(true).setVisible(true);
+      hazard.setCircle(10);
+      hazard.setDepth(8);
+      hazard.setCollideWorldBounds(false);
+      hazard.setVelocity(0, 0);
+      hazard.setAlpha(0.3);
+      const warning = this.add.image(fromLeft ? 8 : this.scale.width - 8, targetY, fromLeft ? 'warning-right' : 'warning-left');
+      warning.setOrigin(fromLeft ? 0 : 1, 0.5);
+      warning.setDepth(18);
+      warning.setAlpha(0.95);
+      this.tweens.add({
+        targets: warning,
+        alpha: 0,
+        duration: this.hazardTelegraphDuration,
+        ease: 'Linear',
+        onComplete: () => warning.destroy()
+      });
+      this.time.delayedCall(this.hazardTelegraphDuration, () => {
+        if (!hazard.active) {
+          return;
+        }
+        hazard.setAlpha(1);
+        hazard.setVelocityX((fromLeft ? 1 : -1) * (event.speed ?? this.stageDefinition.hazardDefaults.horizontalSpeed));
+        hazard.setVelocityY(0);
+      });
+      hazard.setData('fromLeft', fromLeft);
+      hazard.setData('type', 'horizontal');
+      return;
+    }
 
-  private spawnFallingHazard(): void {
-    if (this.reachedGoal) {
-      return;
-    }
-    const camera = this.cameras.main;
-    const spawnY = Math.max(camera.scrollY - 40, this.stageSettings.goalHeight - 120);
-    const spawnX = Phaser.Math.Between(70, this.scale.width - 70);
+    const spawnX = event.x ?? 128;
+    const spawnY = Phaser.Math.Clamp(event.y ?? this.stageDefinition.goalHeight - 140, 40, this.levelHeight - 120);
     const hazard = this.hazards.create(spawnX, spawnY, 'coconut') as Phaser.Physics.Arcade.Sprite;
     hazard.setActive(true).setVisible(true);
     hazard.setCircle(6);
     hazard.setVelocity(0, 0);
     hazard.setGravityY(0);
     hazard.setAlpha(0.2);
-    const warning = this.add.image(spawnX, camera.scrollY + 24, 'warning-down');
+    const warning = this.add.image(spawnX, spawnY + 40, 'warning-down');
     warning.setOrigin(0.5, 0);
     warning.setDepth(18);
     warning.setAlpha(0.95);
@@ -276,7 +270,7 @@ export default class GameScene extends Phaser.Scene {
         return;
       }
       hazard.setAlpha(1);
-      hazard.setGravityY(this.stageSettings.fallingHazardGravity);
+      hazard.setGravityY(event.gravity ?? this.stageDefinition.hazardDefaults.fallingGravity);
     });
     hazard.setData('type', 'vertical');
   }
@@ -296,11 +290,11 @@ export default class GameScene extends Phaser.Scene {
       }
     };
 
-    const stageLabel = this.currentStage.toString().padStart(2, '0');
+    const stageLabel = this.stageDefinition.label;
     this.scoreText = this.add.text(8, 8, '', style).setOrigin(0, 0).setScrollFactor(0);
     this.timeText = this.add.text(this.scale.width - 8, 8, '', style).setOrigin(1, 0).setScrollFactor(0);
     this.stageText = this.add
-      .text(this.scale.width / 2, this.scale.height - 10, `FASE ${stageLabel} - SUBA AO TOPO!`, style)
+      .text(this.scale.width / 2, this.scale.height - 10, `${stageLabel} - ${this.stageDefinition.intro}`, style)
       .setOrigin(0.5, 1)
       .setScrollFactor(0);
     this.stageText.setStyle({ color: '#ffe082' });
@@ -339,8 +333,11 @@ export default class GameScene extends Phaser.Scene {
     const value = sprite.getData('value') ?? 100;
     this.addFloatingText(sprite.x, sprite.y, `+${value}`);
     this.score += value;
-    this.timeLeft = Math.min(this.timeLeft + 2, 180);
-    this.addFloatingText(sprite.x, sprite.y - 16, '+2 TEMPO');
+    const timeBonus = sprite.getData('timeBonus') ?? this.stageDefinition.fruitTimeBonus;
+    if (timeBonus > 0) {
+      this.timeLeft = Math.min(this.timeLeft + timeBonus, this.stageDefinition.maxTime);
+      this.addFloatingText(sprite.x, sprite.y - 16, `+${timeBonus} TEMPO`);
+    }
     this.updateHUD();
   };
 
@@ -409,17 +406,27 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private checkGoal(): void {
-    if (this.player.y < this.stageSettings.goalHeight && !this.reachedGoal) {
+    if (this.player.y < this.stageDefinition.goalHeight && !this.reachedGoal) {
       this.reachedGoal = true;
       this.score += Math.max(this.timeLeft * 50, 0);
       this.addFloatingText(this.player.x, this.player.y - 40, 'VITÓRIA!');
       this.updateHUD();
+      const stageLabel = this.stageDefinition.label;
+      if (this.stageDefinition.isFinal) {
+        this.stageText.setText(`${stageLabel} COMPLETA! COPA ALCANÇADA!`);
+        this.stageText.setStyle({ color: '#aef78d' });
+        this.time.delayedCall(1200, () => {
+          this.scene.start('victory', { score: this.score });
+        });
+        return;
+      }
+
+      const nextStageId = this.stageDefinition.nextStage ?? this.currentStage + 1;
+      const nextLabel = getStageLabel(nextStageId);
       this.time.delayedCall(1200, () => {
-        this.scene.restart({ stage: this.currentStage + 1, score: this.score });
+        this.scene.restart({ stage: nextStageId, score: this.score });
       });
-      const currentLabel = this.currentStage.toString().padStart(2, '0');
-      const nextLabel = (this.currentStage + 1).toString().padStart(2, '0');
-      this.stageText.setText(`FASE ${currentLabel} COMPLETA! PROXIMA ${nextLabel}`);
+      this.stageText.setText(`${stageLabel} COMPLETA! PRÓXIMA ${nextLabel}`);
       this.stageText.setStyle({ color: '#aef78d' });
     }
   }
@@ -467,27 +474,4 @@ export default class GameScene extends Phaser.Scene {
     this.timeText.setText(`TEMPO\n${paddedTime}`);
   }
 
-  private getStageSettings(stage: number): StageSettings {
-    const clamped = Phaser.Math.Clamp(stage, 1, 10);
-    const branchSpacing = Phaser.Math.Clamp(140 - (clamped - 1) * 8, 90, 150);
-    const fruitChance = Phaser.Math.Clamp(0.7 - (clamped - 1) * 0.05, 0.4, 0.75);
-    const horizontalHazardDelay = Phaser.Math.Clamp(2800 - (clamped - 1) * 180, 1500, 2800);
-    const horizontalHazardSpeed = 85 + (clamped - 1) * 14;
-    const fallingHazardDelay = Phaser.Math.Clamp(5200 - (clamped - 1) * 220, 2800, 5200);
-    const fallingHazardGravity = 360 + (clamped - 1) * 28;
-    const goalHeight = 200;
-    const doubleBranchEvery = Math.max(5 - Math.floor(clamped / 2), 2);
-    const branchJitter = clamped > 4 ? 16 : 12;
-    return {
-      branchSpacing,
-      fruitChance,
-      horizontalHazardDelay,
-      horizontalHazardSpeed,
-      fallingHazardDelay,
-      fallingHazardGravity,
-      goalHeight,
-      doubleBranchEvery,
-      branchJitter
-    };
-  }
 }

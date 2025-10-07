@@ -18,10 +18,14 @@ export default class BootScene extends Phaser.Scene {
     this.createTrunkTexture();
     this.createBranchTexture();
     this.createFruitTexture();
+    this.createGoldenFruitTexture();
     this.createHazardTexture();
     this.createCoconutTexture();
     this.createGoalBannerTexture();
     this.createWarningTextures();
+    this.createLadderTexture();
+    this.createCheckpointTexture();
+    this.createCanopyTexture();
     this.createBackgroundTexture();
   }
 
@@ -84,6 +88,18 @@ export default class BootScene extends Phaser.Scene {
     g.destroy();
   }
 
+  private createGoldenFruitTexture(): void {
+    const g = this.add.graphics();
+    g.fillStyle(0xfff59d);
+    g.fillCircle(8, 8, 8);
+    g.lineStyle(2, 0xffca28, 0.9);
+    g.strokeCircle(8, 8, 7);
+    g.fillStyle(0x1f7f1f);
+    g.fillRect(7, 0, 2, 4);
+    g.generateTexture('fruit-golden', 16, 16);
+    g.destroy();
+  }
+
   private createHazardTexture(): void {
     const g = this.add.graphics();
     g.fillStyle(0x3f7fff);
@@ -136,6 +152,46 @@ export default class BootScene extends Phaser.Scene {
     createTriangle('warning-left', [ [0, 6], [10, 0], [10, 12] ]);
     createTriangle('warning-right', [ [12, 6], [2, 0], [2, 12] ]);
     createTriangle('warning-down', [ [6, 12], [0, 2], [12, 2] ]);
+  }
+
+  private createLadderTexture(): void {
+    const g = this.add.graphics();
+    g.fillStyle(0x4a2b12);
+    g.fillRect(0, 0, 4, 32);
+    g.fillRect(16, 0, 4, 32);
+    g.fillStyle(0xcfa26b);
+    for (let y = 4; y < 32; y += 8) {
+      g.fillRect(2, y, 16, 2);
+    }
+    g.generateTexture('ladder', 20, 32);
+    g.destroy();
+  }
+
+  private createCheckpointTexture(): void {
+    const g = this.add.graphics();
+    g.fillStyle(0x3f2a12);
+    g.fillRect(6, 0, 2, 14);
+    g.fillStyle(0xff7043);
+    g.fillTriangle(7, 1, 14, 7, 7, 13);
+    g.lineStyle(1, 0xffffff, 0.85);
+    g.strokeTriangle(7, 1, 14, 7, 7, 13);
+    g.generateTexture('checkpoint', 16, 16);
+    g.destroy();
+  }
+
+  private createCanopyTexture(): void {
+    const g = this.add.graphics();
+    g.fillStyle(0x1f5f1f);
+    g.fillRect(0, 0, 64, 64);
+    g.fillStyle(0x2f8f2f, 0.7);
+    for (let i = 0; i < 8; i += 1) {
+      const x = Phaser.Math.Between(6, 58);
+      const y = Phaser.Math.Between(6, 58);
+      const radius = Phaser.Math.Between(10, 18);
+      g.fillCircle(x, y, radius);
+    }
+    g.generateTexture('canopy', 64, 64);
+    g.destroy();
   }
 
   private createBackgroundTexture(): void {
