@@ -15,6 +15,7 @@ export default class BootScene extends Phaser.Scene {
 
   private createProceduralTextures(): void {
     this.createPlayerTexture();
+    this.createPlayerAnimations();
     this.createTrunkTexture();
     this.createBranchTexture();
     this.createFruitTexture();
@@ -26,24 +27,85 @@ export default class BootScene extends Phaser.Scene {
   }
 
   private createPlayerTexture(): void {
-    const g = this.add.graphics();
-    g.fillStyle(0xf2d5a3);
-    g.fillRect(2, 0, 12, 6);
-    g.fillStyle(0x482f1b);
-    g.fillRect(2, 0, 12, 2);
-    g.fillStyle(0xd12f2f);
-    g.fillRect(0, 6, 16, 8);
-    g.fillStyle(0x1f7f1f);
-    g.fillRect(2, 14, 5, 10);
-    g.fillRect(9, 14, 5, 10);
-    g.fillStyle(0x472b13);
-    g.fillRect(2, 24, 5, 3);
-    g.fillRect(9, 24, 5, 3);
-    g.fillStyle(0xf2d5a3);
-    g.fillRect(0, 10, 4, 6);
-    g.fillRect(12, 10, 4, 6);
-    g.generateTexture('player', 16, 28);
-    g.destroy();
+    const buildFrame = (key: string, options: {
+      legOffset?: number;
+      armSwing?: number;
+      bodyTint?: number;
+      crouched?: boolean;
+    }): void => {
+      const g = this.add.graphics();
+      const skin = 0xf2d5a3;
+      const hair = 0x482f1b;
+      const tunic = 0xd12f2f;
+      const legs = 0x1f7f1f;
+      const shoes = 0x472b13;
+      const armSwing = options.armSwing ?? 0;
+      const legOffset = options.legOffset ?? 0;
+      const bodyTint = options.bodyTint ?? tunic;
+      const crouched = options.crouched ?? false;
+
+      const bodyHeight = crouched ? 6 : 8;
+      const bodyY = crouched ? 8 : 6;
+
+      g.fillStyle(skin);
+      g.fillRect(2, 0, 12, 6);
+      g.fillStyle(hair);
+      g.fillRect(2, 0, 12, 2);
+
+      g.fillStyle(bodyTint);
+      g.fillRect(0, bodyY, 16, bodyHeight);
+
+      g.fillStyle(legs);
+      g.fillRect(2 + legOffset, 14, 5, crouched ? 6 : 10);
+      g.fillRect(9 - legOffset, 14, 5, crouched ? 6 : 10);
+
+      g.fillStyle(shoes);
+      g.fillRect(2 + legOffset, 24 - (crouched ? 4 : 0), 5, 3);
+      g.fillRect(9 - legOffset, 24 - (crouched ? 4 : 0), 5, 3);
+
+      g.fillStyle(skin);
+      g.fillRect(armSwing <= 0 ? 0 : 1, 10 + armSwing, 4, 6);
+      g.fillRect(armSwing >= 0 ? 12 : 11, 10 - armSwing, 4, 6);
+
+      g.generateTexture(key, 16, 28);
+      g.destroy();
+    };
+
+    buildFrame('player-idle', { armSwing: 0, legOffset: 0 });
+    buildFrame('player-run-a', { armSwing: 1, legOffset: 1 });
+    buildFrame('player-run-b', { armSwing: -1, legOffset: -1 });
+    buildFrame('player-jump', { armSwing: -2, legOffset: 2, bodyTint: 0xc92a2a });
+    buildFrame('player-fall', { armSwing: 2, legOffset: -2, bodyTint: 0xc92a2a });
+    buildFrame('player-climb-a', { armSwing: -1, legOffset: 0, bodyTint: 0xce2c2c });
+    buildFrame('player-climb-b', { armSwing: 1, legOffset: 0, bodyTint: 0xce2c2c });
+    buildFrame('player-slide', { armSwing: 0, legOffset: 0, bodyTint: 0xb91f1f, crouched: true });
+    buildFrame('player-hang', { armSwing: -2, legOffset: 0, bodyTint: 0xd84b4b });
+    buildFrame('player-hit', { armSwing: 2, legOffset: 0, bodyTint: 0xff6b6b });
+  }
+
+  private createPlayerAnimations(): void {
+    const create = (
+      key: string,
+      frames: string[],
+      frameRate: number,
+      repeat: number = -1
+    ): void => {
+      this.anims.create({
+        key,
+        frames: frames.map((frameKey) => ({ key: frameKey })),
+        frameRate,
+        repeat
+      });
+    };
+
+    create('player-run', ['player-run-a', 'player-run-b'], 8);
+    create('player-climb', ['player-climb-a', 'player-climb-b'], 6);
+    create('player-idle', ['player-idle'], 1, -1);
+    create('player-jump', ['player-jump'], 1, -1);
+    create('player-fall', ['player-fall'], 1, -1);
+    create('player-slide', ['player-slide'], 1, -1);
+    create('player-hang', ['player-hang'], 1, -1);
+    create('player-hit', ['player-hit'], 1, -1);
   }
 
   private createTrunkTexture(): void {
