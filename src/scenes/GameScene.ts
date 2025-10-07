@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import Player from '../objects/Player';
+import gameState from '../state/GameState';
 
 interface LevelBranchConfig {
   x: number;
@@ -30,8 +31,6 @@ export default class GameScene extends Phaser.Scene {
 
   private climbZone!: Phaser.GameObjects.Zone;
 
-  private score = 0;
-
   private timeLeft = 120;
 
   private levelHeight = 3200;
@@ -48,20 +47,32 @@ export default class GameScene extends Phaser.Scene {
 
   private timeText!: Phaser.GameObjects.Text;
 
+  private livesText!: Phaser.GameObjects.Text;
+
+  private continuesText!: Phaser.GameObjects.Text;
+
+  private heightText!: Phaser.GameObjects.Text;
+
   private stageSettings!: StageSettings;
 
   private goalMarker!: Phaser.GameObjects.Image;
 
   private readonly hazardTelegraphDuration = 360;
 
+  private countdownEvent?: Phaser.Time.TimerEvent;
+
+  private score = 0;
+
   constructor() {
     super('game');
   }
 
-  init(data: { stage?: number; score?: number } = {}): void {
-    this.currentStage = data.stage ?? 1;
-    this.score = data.score ?? 0;
-    this.timeLeft = 120;
+  init(data: { stage?: number; timeLeft?: number } = {}): void {
+    this.currentStage = data.stage ?? gameState.getStage();
+    gameState.setStage(this.currentStage);
+    gameState.updateMaxStage(this.currentStage);
+    this.score = gameState.getScore();
+    this.timeLeft = data.timeLeft ?? 120;
     this.reachedGoal = false;
     this.stageSettings = this.getStageSettings(this.currentStage);
     this.levelHeight = Phaser.Math.Clamp(3200 + (this.currentStage - 1) * 120, 3200, 4000);
@@ -75,6 +86,9 @@ export default class GameScene extends Phaser.Scene {
     this.createHazards();
     this.createUI();
     this.initColliders();
+    this.events.once('shutdown', () => {
+      this.countdownEvent?.remove(false);
+    });
   }
 
   private createWorld(): void {
@@ -299,13 +313,25 @@ export default class GameScene extends Phaser.Scene {
     const stageLabel = this.currentStage.toString().padStart(2, '0');
     this.scoreText = this.add.text(8, 8, '', style).setOrigin(0, 0).setScrollFactor(0);
     this.timeText = this.add.text(this.scale.width - 8, 8, '', style).setOrigin(1, 0).setScrollFactor(0);
+    this.livesText = this.add
+      .text(this.scale.width / 2, 8, '', style)
+      .setOrigin(0.5, 0)
+      .setScrollFactor(0);
+    this.heightText = this.add
+      .text(8, this.scale.height - 10, '', style)
+      .setOrigin(0, 1)
+      .setScrollFactor(0);
+    this.continuesText = this.add
+      .text(this.scale.width - 8, this.scale.height - 10, '', style)
+      .setOrigin(1, 1)
+      .setScrollFactor(0);
     this.stageText = this.add
       .text(this.scale.width / 2, this.scale.height - 10, `FASE ${stageLabel} - SUBA AO TOPO!`, style)
       .setOrigin(0.5, 1)
       .setScrollFactor(0);
     this.stageText.setStyle({ color: '#ffe082' });
 
-    this.time.addEvent({
+    this.countdownEvent = this.time.addEvent({
       delay: 1000,
       loop: true,
       callback: () => {
@@ -338,7 +364,7 @@ export default class GameScene extends Phaser.Scene {
     sprite.disableBody(true, true);
     const value = sprite.getData('value') ?? 100;
     this.addFloatingText(sprite.x, sprite.y, `+${value}`);
-    this.score += value;
+    this.score = gameState.addScore(value);
     this.timeLeft = Math.min(this.timeLeft + 2, 180);
     this.addFloatingText(sprite.x, sprite.y - 16, '+2 TEMPO');
     this.updateHUD();
@@ -361,6 +387,7 @@ export default class GameScene extends Phaser.Scene {
     this.loopHazards();
     this.animateFruits();
     this.updateBackgroundParallax();
+    this.updateHeightIndicator();
     this.checkGoal();
     this.checkFall();
   }
@@ -411,16 +438,24 @@ export default class GameScene extends Phaser.Scene {
   private checkGoal(): void {
     if (this.player.y < this.stageSettings.goalHeight && !this.reachedGoal) {
       this.reachedGoal = true;
-      this.score += Math.max(this.timeLeft * 50, 0);
+      this.countdownEvent?.remove(false);
+      this.physics.pause();
+      this.timeLeft = Math.max(this.timeLeft, 0);
+      const bonus = Math.max(this.timeLeft, 0) * 50;
       this.addFloatingText(this.player.x, this.player.y - 40, 'VITÓRIA!');
-      this.updateHUD();
-      this.time.delayedCall(1200, () => {
-        this.scene.restart({ stage: this.currentStage + 1, score: this.score });
-      });
       const currentLabel = this.currentStage.toString().padStart(2, '0');
-      const nextLabel = (this.currentStage + 1).toString().padStart(2, '0');
-      this.stageText.setText(`FASE ${currentLabel} COMPLETA! PROXIMA ${nextLabel}`);
+      this.stageText.setText(`FASE ${currentLabel} COMPLETA!`);
       this.stageText.setStyle({ color: '#aef78d' });
+      this.score = gameState.getScore();
+      this.time.delayedCall(1400, () => {
+        this.scene.start('progress', {
+          mode: 'stage-clear',
+          stage: this.currentStage,
+          bonus,
+          timeLeft: this.timeLeft,
+          score: this.score
+        });
+      });
     }
   }
 
@@ -435,10 +470,27 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
     this.reachedGoal = true;
-    this.time.addEvent({ delay: 1200, callback: () => this.scene.restart({ stage: 1 }) });
-    this.stageText.setText(`FIM DE JOGO: ${reason}`);
+    this.countdownEvent?.remove(false);
+    this.physics.pause();
+    this.timeLeft = Math.max(this.timeLeft, 0);
+    const livesLeft = gameState.loseLife();
+    const continuesLeft = gameState.getContinues();
+    this.stageText.setText(`PERDEU: ${reason}`);
     this.stageText.setStyle({ color: '#ff4f4f' });
     this.addFloatingText(this.player.x, this.player.y - 30, reason);
+    this.updateHUD();
+    this.score = gameState.getScore();
+    this.time.delayedCall(1400, () => {
+      this.scene.start('progress', {
+        mode: 'life-lost',
+        stage: this.currentStage,
+        reason,
+        lives: livesLeft,
+        continues: continuesLeft,
+        score: this.score,
+        timeLeft: this.timeLeft
+      });
+    });
   }
 
   private addFloatingText(x: number, y: number, text: string): void {
@@ -461,10 +513,25 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private updateHUD(): void {
+    this.score = gameState.getScore();
     const paddedScore = this.score.toString().padStart(7, '0');
     const paddedTime = this.timeLeft.toString().padStart(3, '0');
     this.scoreText.setText(`PONTOS\n${paddedScore}`);
     this.timeText.setText(`TEMPO\n${paddedTime}`);
+    const lives = gameState.getLives().toString().padStart(2, '0');
+    const continues = gameState.getContinues().toString().padStart(2, '0');
+    this.livesText.setText(`VIDAS ${lives}  CONT ${continues}`);
+    this.updateHeightIndicator();
+  }
+
+  private updateHeightIndicator(): void {
+    if (!this.heightText || !this.continuesText) {
+      return;
+    }
+    const playerHeight = Math.max(0, Math.round((this.levelHeight - this.player.y) / 10));
+    const targetHeight = Math.max(0, Math.round((this.levelHeight - this.stageSettings.goalHeight) / 10));
+    this.heightText.setText(`ALTURA ${playerHeight.toString().padStart(3, '0')}`);
+    this.continuesText.setText(`ALVO ${targetHeight.toString().padStart(3, '0')}`);
   }
 
   private getStageSettings(stage: number): StageSettings {
