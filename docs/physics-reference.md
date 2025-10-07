@@ -22,7 +22,7 @@ Para reproduzir o comportamento do original de MSX, registrei capturas do jogo r
 - A escalada foi limitada pela velocidade vertical fixa ao entrar em modo de escalada.
 - A duração do agarrão de galho foi mapeada para uma janela máxima de 600 ms mantendo a gravidade desligada.
 
-Esses alvos são a base para as constantes empregadas em `Player` e nos ajustes da cena.
+Esses alvos agora moram em um perfil compartilhado (`src/config/playerPhysics.ts`), usado pelo `Player` para recalcular aceleração, velocidades máximas e movimentos especiais sempre que algum multiplicador de velocidade entra em cena.
 
 ### Pontuação e penalidades
 

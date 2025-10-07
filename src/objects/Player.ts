@@ -1,4 +1,9 @@
 import Phaser from 'phaser';
+import {
+  basePlayerMovement,
+  PlayerMovementProfile,
+  scalePlayerMovement
+} from '../config/playerPhysics';
 
 type CursorKeys = Phaser.Types.Input.Keyboard.CursorKeys;
 
@@ -28,33 +33,17 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
 
   private hangCooldownUntil = 0;
 
-  private readonly runAcceleration = 780;
+  private readonly baseMovementProfile: PlayerMovementProfile = basePlayerMovement;
 
-  private readonly runDrag = 640;
-
-  private readonly airDrag = 120;
-
-  private readonly jumpVelocity = -335;
-
-  private readonly climbSpeedUp = -60;
-
-  private readonly climbSpeedDown = 96;
-
-  private readonly slideSpeed = 132;
+  private movementProfile: PlayerMovementProfile = scalePlayerMovement(basePlayerMovement, 1);
 
   private readonly controlledFallDuration = 900;
-
-  private readonly controlledFallSpeed = 150;
 
   private readonly hangDuration = 600;
 
   private readonly hitStunDuration = 420;
 
   private readonly invulnerabilityDuration = 1600;
-
-  private readonly baseMaxVelocityX = 120;
-
-  private readonly baseMaxVelocityY = 420;
 
   private controlledFallUntil = 0;
 
@@ -72,11 +61,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     this.setBounce(0.05);
     this.setSize(10, 18);
     this.setOffset(3, 10);
-    this.setMaxVelocity(
-      this.baseMaxVelocityX * this.speedBoost,
-      this.baseMaxVelocityY * this.speedBoost
-    );
-    this.setDragX(this.runDrag);
+    this.applyMovementProfile();
     this.setGravityY(760);
 
     const keyboard = scene.input.keyboard!;
@@ -108,6 +93,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     this.hangTimer = undefined;
     this.setGravityY(760);
     this.setVelocity(0, 0);
+    this.applyMovementProfile();
   }
 
   takeHit(fromDirection: 'left' | 'right' | 'vertical'): void {
@@ -192,9 +178,9 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
       } else {
         body.setAllowGravity(false);
         if (wantsUp) {
-          body.setVelocity(0, this.climbSpeedUp * this.speedBoost);
+          body.setVelocity(0, this.movementProfile.climbSpeedUp);
         } else if (wantsDown) {
-          body.setVelocity(0, this.climbSpeedDown * this.speedBoost);
+          body.setVelocity(0, this.movementProfile.climbSpeedDown);
         } else {
           body.setVelocity(0, 0);
         }
@@ -212,7 +198,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
         this.setMovementState(PlayerState.Fall);
       } else {
         body.setAllowGravity(false);
-        body.setVelocity(0, this.slideSpeed * this.speedBoost);
+        body.setVelocity(0, this.movementProfile.slideSpeed);
         this.updateAnimation();
         return;
       }
@@ -232,7 +218,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     body.setAllowGravity(true);
 
     if (onGround && wantsJump) {
-      body.setVelocityY(this.jumpVelocity * this.speedBoost);
+      body.setVelocityY(this.movementProfile.jumpVelocity);
       this.setMovementState(PlayerState.Jump);
     }
 
@@ -245,7 +231,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     if (canMoveHorizontally) {
       const direction = (wantsRight ? 1 : 0) - (wantsLeft ? 1 : 0);
       if (direction !== 0) {
-        body.setAccelerationX(direction * this.runAcceleration * this.speedBoost);
+        body.setAccelerationX(direction * this.movementProfile.runAcceleration);
         this.setFlipX(direction < 0);
       } else {
         body.setAccelerationX(0);
@@ -255,7 +241,9 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     }
 
     if (!onGround && now < this.controlledFallUntil) {
-      body.setVelocityY(Math.max(body.velocity.y, this.controlledFallSpeed * this.speedBoost));
+      body.setVelocityY(
+        Math.max(body.velocity.y, this.movementProfile.controlledFallSpeed)
+      );
     }
 
     this.refreshStateFromPhysics(onGround, body.velocity.y);
@@ -267,9 +255,9 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
       body.setVelocityX(0);
       body.setVelocityY(
         wantsUp
-          ? this.climbSpeedUp * this.speedBoost
+          ? this.movementProfile.climbSpeedUp
           : wantsDown
-          ? this.climbSpeedDown * this.speedBoost
+          ? this.movementProfile.climbSpeedDown
           : 0
       );
       this.updateAnimation();
@@ -294,10 +282,22 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     const body = this.body as Phaser.Physics.Arcade.Body;
     body.setAllowGravity(true);
     if (jump) {
-      body.setVelocityY(this.jumpVelocity * 0.85 * this.speedBoost);
+      body.setVelocityY(this.movementProfile.jumpVelocity * 0.85);
       this.setMovementState(PlayerState.Jump);
     } else {
       this.setMovementState(PlayerState.Fall);
+    }
+  }
+
+  private applyMovementProfile(): void {
+    this.movementProfile = scalePlayerMovement(this.baseMovementProfile, this.speedBoost);
+    this.setMaxVelocity(
+      this.movementProfile.maxVelocityX,
+      this.movementProfile.maxVelocityY
+    );
+    const body = this.body as Phaser.Physics.Arcade.Body | undefined;
+    if (body) {
+      body.setDragX(this.movementProfile.runDrag);
     }
   }
 
@@ -353,7 +353,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
 
   private updateDrag(onGround: boolean): void {
     const body = this.body as Phaser.Physics.Arcade.Body;
-    body.setDragX(onGround ? this.runDrag : this.airDrag);
+    body.setDragX(onGround ? this.movementProfile.runDrag : this.movementProfile.airDrag);
   }
 
   private checkTrunkOverlap(): boolean {
@@ -368,9 +368,6 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
 
   setSpeedBoost(multiplier: number): void {
     this.speedBoost = Phaser.Math.Clamp(multiplier, 0.25, 3);
-    this.setMaxVelocity(
-      this.baseMaxVelocityX * this.speedBoost,
-      this.baseMaxVelocityY * this.speedBoost
-    );
+    this.applyMovementProfile();
   }
 }
