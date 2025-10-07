@@ -7,6 +7,9 @@ export default class BootScene extends Phaser.Scene {
 
   preload(): void {
     this.createProceduralTextures();
+    this.createEnemySpritesheets();
+    this.createParticleTexture();
+    this.createSynthSounds();
   }
 
   create(): void {
@@ -18,10 +21,7 @@ export default class BootScene extends Phaser.Scene {
     this.createTrunkTexture();
     this.createBranchTexture();
     this.createFruitTexture();
-    this.createHazardTexture();
-    this.createCoconutTexture();
     this.createGoalBannerTexture();
-    this.createWarningTextures();
     this.createBackgroundTexture();
   }
 
@@ -84,32 +84,6 @@ export default class BootScene extends Phaser.Scene {
     g.destroy();
   }
 
-  private createHazardTexture(): void {
-    const g = this.add.graphics();
-    g.fillStyle(0x3f7fff);
-    g.fillCircle(10, 10, 10);
-    g.fillStyle(0x001a40);
-    g.fillCircle(6, 8, 4);
-    g.fillCircle(14, 8, 4);
-    g.fillStyle(0xffffff);
-    g.fillCircle(6, 8, 2);
-    g.fillCircle(14, 8, 2);
-    g.generateTexture('hazard', 20, 20);
-    g.destroy();
-  }
-
-  private createCoconutTexture(): void {
-    const g = this.add.graphics();
-    g.fillStyle(0x5b2b0c);
-    g.fillCircle(6, 6, 6);
-    g.fillStyle(0x311804, 0.9);
-    g.fillCircle(4, 4, 1.5);
-    g.fillCircle(8, 3.5, 1.2);
-    g.fillCircle(6.5, 7.5, 1.1);
-    g.generateTexture('coconut', 12, 12);
-    g.destroy();
-  }
-
   private createGoalBannerTexture(): void {
     const g = this.add.graphics();
     g.fillStyle(0xffe17a);
@@ -120,22 +94,6 @@ export default class BootScene extends Phaser.Scene {
     g.fillRect(4, 1, 12, 4);
     g.generateTexture('goal-banner', 84, 9);
     g.destroy();
-  }
-
-  private createWarningTextures(): void {
-    const createTriangle = (key: string, points: [number, number][]): void => {
-      const g = this.add.graphics();
-      g.fillStyle(0xff5252);
-      g.fillTriangle(points[0][0], points[0][1], points[1][0], points[1][1], points[2][0], points[2][1]);
-      g.lineStyle(1, 0xffffff, 0.8);
-      g.strokeTriangle(points[0][0], points[0][1], points[1][0], points[1][1], points[2][0], points[2][1]);
-      g.generateTexture(key, 12, 12);
-      g.destroy();
-    };
-
-    createTriangle('warning-left', [ [0, 6], [10, 0], [10, 12] ]);
-    createTriangle('warning-right', [ [12, 6], [2, 0], [2, 12] ]);
-    createTriangle('warning-down', [ [6, 12], [0, 2], [12, 2] ]);
   }
 
   private createBackgroundTexture(): void {
@@ -150,5 +108,150 @@ export default class BootScene extends Phaser.Scene {
     }
     g.generateTexture('sky', 256, 256);
     g.destroy();
+  }
+
+  private createEnemySpritesheets(): void {
+    this.createSpriteSheet('enemy-condor', 24, 18, 3, (ctx, frame) => {
+      ctx.fillStyle = '#27406b';
+      ctx.beginPath();
+      ctx.moveTo(4, 10);
+      ctx.quadraticCurveTo(12, 2 + frame, 20, 10);
+      ctx.lineTo(20, 12);
+      ctx.quadraticCurveTo(12, 6 + frame, 4, 12);
+      ctx.fill();
+      ctx.fillStyle = '#f2d5a3';
+      ctx.fillRect(10, 6, 4, 3);
+      ctx.fillStyle = '#ffe082';
+      ctx.fillRect(9, 6, 2, 2);
+    });
+
+    this.createSpriteSheet('enemy-scorpion', 18, 14, 4, (ctx, frame) => {
+      ctx.fillStyle = '#30110a';
+      ctx.fillRect(2, 6, 14, 6);
+      ctx.fillStyle = '#6e2d1b';
+      ctx.fillRect(3, 7, 12, 4);
+      ctx.fillStyle = '#ffe082';
+      ctx.fillRect(2 + (frame % 2), 5, 6, 3);
+      ctx.fillRect(10 - (frame % 2), 5, 6, 3);
+      ctx.strokeStyle = '#a55824';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(4, 6);
+      ctx.lineTo(3, 2 + (frame % 2));
+      ctx.moveTo(14, 6);
+      ctx.lineTo(15, 2 + ((frame + 1) % 2));
+      ctx.stroke();
+    });
+
+    this.createSpriteSheet('enemy-monkey', 20, 20, 4, (ctx, frame) => {
+      ctx.fillStyle = '#4a2b0f';
+      ctx.fillRect(4, 8, 12, 8);
+      ctx.fillStyle = '#d79c62';
+      ctx.fillRect(7, 10, 6, 6);
+      ctx.fillStyle = '#f2d5a3';
+      ctx.fillRect(8, 4, 4, 4);
+      ctx.fillRect(6, 12, 3, 5);
+      ctx.fillRect(11, 12, 3, 5);
+      ctx.fillStyle = '#4a2b0f';
+      ctx.fillRect(4 + (frame % 2), 6, 2, 6);
+      ctx.fillRect(14 - (frame % 2), 6, 2, 6);
+    });
+
+    this.createSpriteSheet('enemy-snake', 20, 16, 4, (ctx, frame) => {
+      ctx.fillStyle = '#1f7f1f';
+      ctx.fillRect(2, 8, 16, 4);
+      ctx.fillStyle = '#0c4010';
+      ctx.fillRect(4, 6, 12, 3);
+      ctx.fillStyle = '#ffe082';
+      ctx.fillRect(12 + (frame % 2), 6, 2, 2);
+      ctx.fillStyle = '#27406b';
+      ctx.fillRect(10, 4 - (frame % 2), 4, 4);
+    });
+
+    this.createSpriteSheet('enemy-spider', 16, 18, 4, (ctx, frame) => {
+      ctx.fillStyle = '#2b213d';
+      ctx.beginPath();
+      ctx.arc(8, 10, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffe082';
+      ctx.fillRect(6, 6, 2, 2);
+      ctx.fillRect(9, 6, 2, 2);
+      ctx.strokeStyle = '#473a6b';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(4, 10);
+      ctx.lineTo(0, 6 + (frame % 2));
+      ctx.moveTo(4, 12);
+      ctx.lineTo(0, 14 - (frame % 2));
+      ctx.moveTo(12, 10);
+      ctx.lineTo(16, 6 + (frame % 2));
+      ctx.moveTo(12, 12);
+      ctx.lineTo(16, 14 - (frame % 2));
+      ctx.stroke();
+    });
+
+    this.createSpriteSheet('enemy-coconut', 12, 12, 3, (ctx, frame) => {
+      ctx.fillStyle = '#5b2b0c';
+      ctx.beginPath();
+      ctx.arc(6, 6, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#311804';
+      ctx.beginPath();
+      ctx.arc(4 + frame % 2, 4, 1.5, 0, Math.PI * 2);
+      ctx.arc(8 - (frame % 2), 4.5, 1.2, 0, Math.PI * 2);
+      ctx.arc(6 + ((frame + 1) % 2), 7, 1.1, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  private createSpriteSheet(
+    key: string,
+    frameWidth: number,
+    frameHeight: number,
+    frameCount: number,
+    draw: (ctx: CanvasRenderingContext2D, frame: number) => void
+  ): void {
+    const texture = this.textures.createCanvas(key, frameWidth * frameCount, frameHeight);
+    const ctx = texture.getContext();
+    for (let i = 0; i < frameCount; i += 1) {
+      ctx.save();
+      ctx.translate(i * frameWidth, 0);
+      draw(ctx, i);
+      ctx.restore();
+      texture.add(i.toString(), 0, i * frameWidth, 0, frameWidth, frameHeight);
+    }
+    texture.refresh();
+  }
+
+  private createParticleTexture(): void {
+    const g = this.add.graphics();
+    const colors = [0xffe082, 0xffb347, 0xffffff];
+    colors.forEach((color, index) => {
+      g.fillStyle(color, 0.9);
+      g.fillCircle(6, 6, 4 - index);
+    });
+    g.generateTexture('enemy-spark', 12, 12);
+    g.destroy();
+  }
+
+  private createSynthSounds(): void {
+    const context = this.sound.context as AudioContext | null;
+    if (!context) {
+      return;
+    }
+    const createBeep = (key: string, frequency: number, duration: number): void => {
+      const length = Math.floor(context.sampleRate * duration);
+      const buffer = context.createBuffer(1, length, context.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < length; i += 1) {
+        const t = i / context.sampleRate;
+        const envelope = Math.exp(-6 * t);
+        data[i] = Math.sin(Math.PI * 2 * frequency * t) * envelope;
+      }
+      this.cache.audio.add(key, { buffer });
+    };
+
+    createBeep('enemy-hit', 860, 0.18);
+    createBeep('time-drain', 420, 0.24);
   }
 }
