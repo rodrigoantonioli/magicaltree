@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
 import BootScene from './scenes/BootScene';
+import TitleScene from './scenes/TitleScene';
 import GameScene from './scenes/GameScene';
+import ScoreScene from './scenes/ScoreScene';
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -24,7 +26,7 @@ const config: Phaser.Types.Core.GameConfig = {
     antialias: false,
     pixelArt: true
   },
-  scene: [BootScene, GameScene]
+  scene: [BootScene, TitleScene, GameScene, ScoreScene]
 };
 
 export default new Phaser.Game(config);

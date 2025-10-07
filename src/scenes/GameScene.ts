@@ -42,7 +42,7 @@ export default class GameScene extends Phaser.Scene {
 
   private currentStage = 1;
 
-  private sky!: Phaser.GameObjects.TileSprite;
+  private backdrop!: Phaser.GameObjects.TileSprite;
 
   private scoreText!: Phaser.GameObjects.Text;
 
@@ -53,6 +53,16 @@ export default class GameScene extends Phaser.Scene {
   private goalMarker!: Phaser.GameObjects.Image;
 
   private readonly hazardTelegraphDuration = 360;
+
+  private themeMusic?: Phaser.Sound.BaseSound;
+
+  private timerCue?: Phaser.Sound.BaseSound;
+
+  private victoryJingle?: Phaser.Sound.BaseSound;
+
+  private gameOverJingle?: Phaser.Sound.BaseSound;
+
+  private timerCuePlaying = false;
 
   constructor() {
     super('game');
@@ -74,31 +84,39 @@ export default class GameScene extends Phaser.Scene {
     this.createPlayer();
     this.createHazards();
     this.createUI();
+    this.setupAudio();
     this.initColliders();
   }
 
   private createWorld(): void {
     this.physics.world.setBounds(0, 0, 256, this.levelHeight, true, true, true, false);
-    this.sky = this.add.tileSprite(128, this.levelHeight / 2, 256, this.levelHeight, 'sky');
-    this.sky.setOrigin(0.5, 0.5);
-    this.sky.setScrollFactor(0, 0);
+    this.backdrop = this.add.tileSprite(128, this.levelHeight / 2, 256, this.levelHeight, 'forest-background');
+    this.backdrop.setOrigin(0.5, 0.5);
+    this.backdrop.setScrollFactor(0, 0);
+    this.backdrop.setDepth(-10);
 
     const camera = this.cameras.main;
     camera.setBounds(0, 0, 256, this.levelHeight);
-    camera.setBackgroundColor('#0c1a2a');
+    camera.setBackgroundColor('#081220');
   }
 
   private createTree(): void {
-    const trunkCount = Math.ceil(this.levelHeight / 64) + 2;
+    const trunkCount = Math.ceil(this.levelHeight / 48) + 2;
     for (let i = 0; i < trunkCount; i += 1) {
-      const trunk = this.add.image(128, this.levelHeight - i * 64, 'trunk');
+      const trunk = this.add.image(128, this.levelHeight - i * 48, 'trunk-segment');
       trunk.setOrigin(0.5, 1);
+      trunk.setDepth(2);
     }
 
     const goalY = this.stageSettings.goalHeight;
-    this.goalMarker = this.add.image(128, goalY, 'goal-banner');
+    this.goalMarker = this.add.image(128, goalY, 'goal-banner-msx');
     this.goalMarker.setOrigin(0.5, 1);
     this.goalMarker.setDepth(6);
+
+    const canopyDecor = this.add.image(128, goalY + 32, 'branch-platform');
+    canopyDecor.setOrigin(0.5, 0.5);
+    canopyDecor.setScale(1.15, 1.1);
+    canopyDecor.setDepth(5);
 
     this.climbZone = this.add.zone(128, this.levelHeight / 2, 48, this.levelHeight);
     this.physics.add.existing(this.climbZone, true);
@@ -110,12 +128,12 @@ export default class GameScene extends Phaser.Scene {
 
     const configs = this.generateLevelLayout();
     configs.forEach((config) => {
-      const branch = this.branches.create(config.x, config.y, 'branch') as Phaser.Physics.Arcade.Sprite;
+      const branch = this.branches.create(config.x, config.y, 'branch-platform') as Phaser.Physics.Arcade.Sprite;
       branch.setOrigin(0.5, 0.5);
       branch.refreshBody();
 
       if (config.hasFruit) {
-        const fruit = this.fruits.create(config.x, config.y - 20, 'fruit');
+        const fruit = this.fruits.create(config.x, config.y - 20, 'magical-fruit');
         fruit.setData('value', 200);
         fruit.setData('floatingSeed', Phaser.Math.Between(0, 1000));
       }
@@ -217,14 +235,19 @@ export default class GameScene extends Phaser.Scene {
     );
     const fromLeft = Phaser.Math.Between(0, 1) === 0;
     const spawnX = fromLeft ? -32 : this.scale.width + 32;
-    const hazard = this.hazards.create(spawnX, targetY, 'hazard') as Phaser.Physics.Arcade.Sprite;
+    const hazard = this.hazards.create(spawnX, targetY, 'condor-enemy') as Phaser.Physics.Arcade.Sprite;
     hazard.setActive(true).setVisible(true);
-    hazard.setCircle(10);
+    hazard.setCircle(8, 2, 4);
     hazard.setDepth(8);
     hazard.setCollideWorldBounds(false);
     hazard.setVelocity(0, 0);
     hazard.setAlpha(0.3);
-    const warning = this.add.image(fromLeft ? 8 : this.scale.width - 8, targetY, fromLeft ? 'warning-right' : 'warning-left');
+    hazard.play('condor-fly');
+    const warning = this.add.image(
+      fromLeft ? 8 : this.scale.width - 8,
+      targetY,
+      fromLeft ? 'warning-arrow-right' : 'warning-arrow-left'
+    );
     warning.setOrigin(fromLeft ? 0 : 1, 0.5);
     warning.setDepth(18);
     warning.setAlpha(0.95);
@@ -254,13 +277,13 @@ export default class GameScene extends Phaser.Scene {
     const camera = this.cameras.main;
     const spawnY = Math.max(camera.scrollY - 40, this.stageSettings.goalHeight - 120);
     const spawnX = Phaser.Math.Between(70, this.scale.width - 70);
-    const hazard = this.hazards.create(spawnX, spawnY, 'coconut') as Phaser.Physics.Arcade.Sprite;
+    const hazard = this.hazards.create(spawnX, spawnY, 'coconut-danger') as Phaser.Physics.Arcade.Sprite;
     hazard.setActive(true).setVisible(true);
     hazard.setCircle(6);
     hazard.setVelocity(0, 0);
     hazard.setGravityY(0);
     hazard.setAlpha(0.2);
-    const warning = this.add.image(spawnX, camera.scrollY + 24, 'warning-down');
+    const warning = this.add.image(spawnX, camera.scrollY + 24, 'warning-arrow-down');
     warning.setOrigin(0.5, 0);
     warning.setDepth(18);
     warning.setAlpha(0.95);
@@ -318,10 +341,12 @@ export default class GameScene extends Phaser.Scene {
           this.handleGameOver('TEMPO ESGOTOU');
         }
         this.updateHUD();
+        this.updateTimerCueState();
       }
     });
 
     this.updateHUD();
+    this.updateTimerCueState();
   }
 
   private initColliders(): void {
@@ -337,11 +362,13 @@ export default class GameScene extends Phaser.Scene {
     }
     sprite.disableBody(true, true);
     const value = sprite.getData('value') ?? 100;
+    this.player.playCollectSound();
     this.addFloatingText(sprite.x, sprite.y, `+${value}`);
     this.score += value;
     this.timeLeft = Math.min(this.timeLeft + 2, 180);
     this.addFloatingText(sprite.x, sprite.y - 16, '+2 TEMPO');
     this.updateHUD();
+    this.updateTimerCueState();
   };
 
   private hitHazard: Phaser.Types.Physics.Arcade.ArcadePhysicsCallback = (_player, hazard) => {
@@ -367,7 +394,7 @@ export default class GameScene extends Phaser.Scene {
 
   private updateBackgroundParallax(): void {
     const scrollY = this.cameras.main.scrollY;
-    this.sky.tilePositionY = scrollY * 0.2;
+    this.backdrop.tilePositionY = scrollY * 0.3;
   }
 
   private loopHazards(): void {
@@ -411,16 +438,27 @@ export default class GameScene extends Phaser.Scene {
   private checkGoal(): void {
     if (this.player.y < this.stageSettings.goalHeight && !this.reachedGoal) {
       this.reachedGoal = true;
-      this.score += Math.max(this.timeLeft * 50, 0);
+      const bonus = Math.max(this.timeLeft * 50, 0);
+      this.score += bonus;
       this.addFloatingText(this.player.x, this.player.y - 40, 'VITÓRIA!');
-      this.updateHUD();
-      this.time.delayedCall(1200, () => {
-        this.scene.restart({ stage: this.currentStage + 1, score: this.score });
-      });
+      if (bonus > 0) {
+        this.addFloatingText(this.player.x, this.player.y - 58, `BONUS ${bonus}`);
+      }
+      this.stageText.setStyle({ color: '#aef78d' });
       const currentLabel = this.currentStage.toString().padStart(2, '0');
       const nextLabel = (this.currentStage + 1).toString().padStart(2, '0');
       this.stageText.setText(`FASE ${currentLabel} COMPLETA! PROXIMA ${nextLabel}`);
-      this.stageText.setStyle({ color: '#aef78d' });
+      this.updateHUD();
+      this.updateTimerCueState();
+      this.playOutcomeJingle('victory');
+      this.time.delayedCall(1600, () => {
+        this.scene.start('score', {
+          outcome: 'victory',
+          stage: this.currentStage,
+          score: this.score,
+          nextStage: this.currentStage + 1
+        });
+      });
     }
   }
 
@@ -435,10 +473,18 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
     this.reachedGoal = true;
-    this.time.addEvent({ delay: 1200, callback: () => this.scene.restart({ stage: 1 }) });
     this.stageText.setText(`FIM DE JOGO: ${reason}`);
     this.stageText.setStyle({ color: '#ff4f4f' });
     this.addFloatingText(this.player.x, this.player.y - 30, reason);
+    this.updateTimerCueState();
+    this.playOutcomeJingle('gameover');
+    this.time.delayedCall(1400, () => {
+      this.scene.start('score', {
+        outcome: 'gameover',
+        stage: this.currentStage,
+        score: this.score
+      });
+    });
   }
 
   private addFloatingText(x: number, y: number, text: string): void {
@@ -465,6 +511,61 @@ export default class GameScene extends Phaser.Scene {
     const paddedTime = this.timeLeft.toString().padStart(3, '0');
     this.scoreText.setText(`PONTOS\n${paddedScore}`);
     this.timeText.setText(`TEMPO\n${paddedTime}`);
+  }
+
+  private setupAudio(): void {
+    this.stopAudio();
+    this.themeMusic = this.sound.add('music-theme', { loop: true, volume: 0.25 });
+    this.timerCue = this.sound.add('music-timer', { loop: true, volume: 0.25 });
+    this.victoryJingle = this.sound.add('music-victory', { loop: false, volume: 0.4 });
+    this.gameOverJingle = this.sound.add('music-gameover', { loop: false, volume: 0.4 });
+    this.themeMusic.play();
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.stopAudio());
+    this.events.once(Phaser.Scenes.Events.DESTROY, () => this.stopAudio());
+  }
+
+  private stopAudio(): void {
+    this.themeMusic?.stop();
+    this.timerCue?.stop();
+    this.victoryJingle?.stop();
+    this.gameOverJingle?.stop();
+    this.timerCuePlaying = false;
+  }
+
+  private updateTimerCueState(): void {
+    if (!this.timerCue) {
+      return;
+    }
+    if (this.reachedGoal || this.timeLeft <= 0) {
+      if (this.timerCuePlaying) {
+        this.timerCue.stop();
+        this.timerCuePlaying = false;
+      }
+      return;
+    }
+
+    if (this.timeLeft <= 20) {
+      if (!this.timerCuePlaying) {
+        this.timerCue.play();
+        this.timerCuePlaying = true;
+      }
+    } else if (this.timerCuePlaying) {
+      this.timerCue.stop();
+      this.timerCuePlaying = false;
+    }
+  }
+
+  private playOutcomeJingle(outcome: 'victory' | 'gameover'): void {
+    this.timerCue?.stop();
+    this.timerCuePlaying = false;
+    this.themeMusic?.stop();
+    if (outcome === 'victory') {
+      this.victoryJingle?.stop();
+      this.victoryJingle?.play();
+    } else {
+      this.gameOverJingle?.stop();
+      this.gameOverJingle?.play();
+    }
   }
 
   private getStageSettings(stage: number): StageSettings {
