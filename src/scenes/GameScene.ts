@@ -34,6 +34,8 @@ export default class GameScene extends Phaser.Scene {
 
   private timeLeft = 120;
 
+  private lives = 3;
+
   private levelHeight = 3200;
 
   private stageText!: Phaser.GameObjects.Text;
@@ -48,20 +50,27 @@ export default class GameScene extends Phaser.Scene {
 
   private timeText!: Phaser.GameObjects.Text;
 
+  private livesText!: Phaser.GameObjects.Text;
+
   private stageSettings!: StageSettings;
 
   private goalMarker!: Phaser.GameObjects.Image;
 
   private readonly hazardTelegraphDuration = 360;
 
+  private baseStageMessage = '';
+
+  private stageMessageTimer?: Phaser.Time.TimerEvent;
+
   constructor() {
     super('game');
   }
 
-  init(data: { stage?: number; score?: number } = {}): void {
+  init(data: { stage?: number; score?: number; lives?: number } = {}): void {
     this.currentStage = data.stage ?? 1;
     this.score = data.score ?? 0;
     this.timeLeft = 120;
+    this.lives = data.lives ?? 3;
     this.reachedGoal = false;
     this.stageSettings = this.getStageSettings(this.currentStage);
     this.levelHeight = Phaser.Math.Clamp(3200 + (this.currentStage - 1) * 120, 3200, 4000);
@@ -116,7 +125,7 @@ export default class GameScene extends Phaser.Scene {
 
       if (config.hasFruit) {
         const fruit = this.fruits.create(config.x, config.y - 20, 'fruit');
-        fruit.setData('value', 200);
+        fruit.setData('value', 500);
         fruit.setData('floatingSeed', Phaser.Math.Between(0, 1000));
       }
     });
@@ -299,8 +308,10 @@ export default class GameScene extends Phaser.Scene {
     const stageLabel = this.currentStage.toString().padStart(2, '0');
     this.scoreText = this.add.text(8, 8, '', style).setOrigin(0, 0).setScrollFactor(0);
     this.timeText = this.add.text(this.scale.width - 8, 8, '', style).setOrigin(1, 0).setScrollFactor(0);
+    this.livesText = this.add.text(this.scale.width / 2, 8, '', style).setOrigin(0.5, 0).setScrollFactor(0);
+    this.baseStageMessage = `FASE ${stageLabel} - SUBA AO TOPO!`;
     this.stageText = this.add
-      .text(this.scale.width / 2, this.scale.height - 10, `FASE ${stageLabel} - SUBA AO TOPO!`, style)
+      .text(this.scale.width / 2, this.scale.height - 10, this.baseStageMessage, style)
       .setOrigin(0.5, 1)
       .setScrollFactor(0);
     this.stageText.setStyle({ color: '#ffe082' });
@@ -315,7 +326,7 @@ export default class GameScene extends Phaser.Scene {
         this.timeLeft -= 1;
         if (this.timeLeft <= 0) {
           this.timeLeft = 0;
-          this.handleGameOver('TEMPO ESGOTOU');
+          this.applyLifeLoss('TEMPO ESGOTOU', { resetStage: true });
         }
         this.updateHUD();
       }
@@ -336,11 +347,11 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
     sprite.disableBody(true, true);
-    const value = sprite.getData('value') ?? 100;
+    const value = sprite.getData('value') ?? 500;
     this.addFloatingText(sprite.x, sprite.y, `+${value}`);
     this.score += value;
-    this.timeLeft = Math.min(this.timeLeft + 2, 180);
-    this.addFloatingText(sprite.x, sprite.y - 16, '+2 TEMPO');
+    this.timeLeft = Math.min(this.timeLeft + 1, 180);
+    this.addFloatingText(sprite.x, sprite.y - 16, '+1 TEMPO');
     this.updateHUD();
   };
 
@@ -350,7 +361,15 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
     sprite.disableBody(true, true);
-    this.handleGameOver('ATINGIDO!');
+    if (this.player.isInvulnerable()) {
+      return;
+    }
+    const type = sprite.getData('type') as string | undefined;
+    const fromLeft = sprite.getData('fromLeft') as boolean | undefined;
+    const direction: 'left' | 'right' | 'vertical' =
+      type === 'vertical' ? 'vertical' : fromLeft ? 'left' : 'right';
+    this.player.takeHit(direction);
+    this.applyLifeLoss('ATINGIDO!', { timePenalty: 10 });
   };
 
   update(): void {
@@ -411,11 +430,11 @@ export default class GameScene extends Phaser.Scene {
   private checkGoal(): void {
     if (this.player.y < this.stageSettings.goalHeight && !this.reachedGoal) {
       this.reachedGoal = true;
-      this.score += Math.max(this.timeLeft * 50, 0);
+      this.score += Math.max(this.timeLeft * 100, 0);
       this.addFloatingText(this.player.x, this.player.y - 40, 'VITÓRIA!');
       this.updateHUD();
       this.time.delayedCall(1200, () => {
-        this.scene.restart({ stage: this.currentStage + 1, score: this.score });
+        this.scene.restart({ stage: this.currentStage + 1, score: this.score, lives: this.lives });
       });
       const currentLabel = this.currentStage.toString().padStart(2, '0');
       const nextLabel = (this.currentStage + 1).toString().padStart(2, '0');
@@ -426,7 +445,54 @@ export default class GameScene extends Phaser.Scene {
 
   private checkFall(): void {
     if (this.player.y > this.levelHeight - 40 && !this.reachedGoal) {
-      this.handleGameOver('CAIU!');
+      this.applyLifeLoss('CAIU!', {
+        timePenalty: 15,
+        resetStage: true
+      });
+    }
+  }
+
+  private applyLifeLoss(
+    reason: string,
+    options: { timePenalty?: number; resetStage?: boolean } = {}
+  ): void {
+    if (this.reachedGoal) {
+      return;
+    }
+    if (this.lives <= 0) {
+      this.handleGameOver(reason);
+      return;
+    }
+
+    this.lives = Math.max(this.lives - 1, 0);
+    if (options.timePenalty) {
+      this.timeLeft = Math.max(this.timeLeft - options.timePenalty, 0);
+      this.addFloatingText(this.player.x, this.player.y - 14, `-${options.timePenalty} TEMPO`);
+    }
+    this.addFloatingText(this.player.x, this.player.y - 30, reason);
+    this.updateHUD();
+
+    if (this.lives <= 0) {
+      this.handleGameOver(reason);
+      return;
+    }
+
+    this.stageText.setText(`VIDAS RESTANTES: ${this.lives}`);
+    this.stageText.setStyle({ color: '#ffe082' });
+    this.stageMessageTimer?.remove(false);
+    this.stageMessageTimer = this.time.delayedCall(2000, () => {
+      if (!this.reachedGoal) {
+        this.stageText.setText(this.baseStageMessage);
+        this.stageText.setStyle({ color: '#ffe082' });
+      }
+    });
+
+    if (options.resetStage) {
+      this.reachedGoal = true;
+      this.player.forceReset();
+      this.time.delayedCall(1200, () => {
+        this.scene.restart({ stage: this.currentStage, score: this.score, lives: this.lives });
+      });
     }
   }
 
@@ -435,10 +501,10 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
     this.reachedGoal = true;
-    this.time.addEvent({ delay: 1200, callback: () => this.scene.restart({ stage: 1 }) });
     this.stageText.setText(`FIM DE JOGO: ${reason}`);
     this.stageText.setStyle({ color: '#ff4f4f' });
     this.addFloatingText(this.player.x, this.player.y - 30, reason);
+    this.time.addEvent({ delay: 1400, callback: () => this.scene.restart({ stage: 1, lives: 3, score: 0 }) });
   }
 
   private addFloatingText(x: number, y: number, text: string): void {
@@ -463,8 +529,10 @@ export default class GameScene extends Phaser.Scene {
   private updateHUD(): void {
     const paddedScore = this.score.toString().padStart(7, '0');
     const paddedTime = this.timeLeft.toString().padStart(3, '0');
+    const paddedLives = this.lives.toString().padStart(2, '0');
     this.scoreText.setText(`PONTOS\n${paddedScore}`);
     this.timeText.setText(`TEMPO\n${paddedTime}`);
+    this.livesText.setText(`VIDAS\n${paddedLives}`);
   }
 
   private getStageSettings(stage: number): StageSettings {
